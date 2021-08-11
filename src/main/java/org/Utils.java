@@ -1,5 +1,20 @@
 package org;
 
+import org.bouncycastle.asn1.x509.BasicConstraints;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.X509v3CertificateBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v1CertificateBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.util.encoders.Base64;
+
+import javax.security.auth.x500.X500Principal;
+import javax.security.auth.x500.X500PrivateCredential;
 import java.io.*;
 import java.math.BigInteger;
 import java.nio.file.Files;
@@ -10,28 +25,10 @@ import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Date;
 import java.util.Enumeration;
-import javax.security.auth.x500.X500Principal;
-import javax.security.auth.x500.X500PrivateCredential;
-
-import org.bouncycastle.asn1.ASN1Integer;
-import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.x509.*;
-import org.bouncycastle.cert.X509CertificateHolder;
-import org.bouncycastle.cert.X509v3CertificateBuilder;
-import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
-import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
-import org.bouncycastle.cert.jcajce.JcaX509v1CertificateBuilder;
-import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.operator.ContentSigner;
-import org.bouncycastle.operator.OperatorCreationException;
-import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
-import org.bouncycastle.util.encoders.Base64;
-import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 
 /**
  * Certificate/Key Utilities for the examples.
@@ -321,26 +318,11 @@ public class Utils
                 publicKey
         );
 
-        byte[] id = new byte[20];
-        random.nextBytes(id);
-        builder.addExtension(Extension.subjectKeyIdentifier, false, id);
-        builder.addExtension(Extension.authorityKeyIdentifier, false, id);
         BasicConstraints constraints = new BasicConstraints(true);
         builder.addExtension(
                 Extension.basicConstraints,
                 true,
                 constraints.getEncoded());
-        KeyUsage usage = new KeyUsage(KeyUsage.keyCertSign | KeyUsage.digitalSignature);
-        builder.addExtension(Extension.keyUsage, false, usage.getEncoded());
-        ExtendedKeyUsage usageEx = new ExtendedKeyUsage(new KeyPurposeId[] {
-                KeyPurposeId.id_kp_serverAuth,
-                KeyPurposeId.id_kp_clientAuth
-        });
-        builder.addExtension(
-                Extension.extendedKeyUsage,
-                false,
-                usageEx.getEncoded());
-
         ContentSigner signer = new JcaContentSignerBuilder(SIGNATURE_ALGORITHM)
                 .build(privateKey);
         X509CertificateHolder holder = builder.build(signer);
