@@ -1,30 +1,19 @@
 package com.mcafee;
 
 import org.Utils;
-import org.bouncycastle.openssl.PEMKeyPair;
-import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.util.encoders.Base64;
-import org.bouncycastle.openssl.PEMParser;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.*;
-import java.math.BigInteger;
 import java.security.*;
-import java.security.cert.X509Certificate;
-import java.security.interfaces.ECPublicKey;
 import java.security.spec.*;
 
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
-import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-
-import static org.junit.Assert.*;
 
 /**
  * Unit test for simple App.
