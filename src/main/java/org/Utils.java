@@ -331,7 +331,12 @@ public class Utils
     }
 
 
-    public static void changeAllPrivateKeysInBcfksFiles(String current, String keystoreFileName, String keyStorePassword,String oldKeyPassword, String newKeyPassword) throws Exception {
+    public static void changeAllPrivateKeysInBcfksFiles(
+            String current,
+            String keystoreFileName,
+            String keyStorePassword,
+            String oldKeyPassword,
+            String newKeyPassword) throws Exception {
         File file = new File(current);
         if (file.isFile() && file.getName().equals(keystoreFileName)) {
             boolean hasError = false;
