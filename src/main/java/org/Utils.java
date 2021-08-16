@@ -1,5 +1,20 @@
 package org;
 
+import org.bouncycastle.asn1.x509.BasicConstraints;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.X509v3CertificateBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v1CertificateBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.util.encoders.Base64;
+
+import javax.security.auth.x500.X500Principal;
+import javax.security.auth.x500.X500PrivateCredential;
 import java.io.*;
 import java.math.BigInteger;
 import java.nio.file.Files;
@@ -10,27 +25,10 @@ import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Date;
 import java.util.Enumeration;
-import javax.security.auth.x500.X500Principal;
-import javax.security.auth.x500.X500PrivateCredential;
-
-import org.bouncycastle.asn1.ASN1Integer;
-import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.x509.*;
-import org.bouncycastle.cert.X509CertificateHolder;
-import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
-import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
-import org.bouncycastle.cert.jcajce.JcaX509v1CertificateBuilder;
-import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.operator.ContentSigner;
-import org.bouncycastle.operator.OperatorCreationException;
-import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
-import org.bouncycastle.util.encoders.Base64;
-import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 
 /**
  * Certificate/Key Utilities for the examples.
@@ -267,6 +265,7 @@ public class Utils
 
         if (file.isFile() && file.getName().equals(keystoreFileName)) {
             KeyStore keyStore = KeyStore.getInstance("BCFKS", "BCFIPS");
+
             boolean ok = true;
             try (FileInputStream storeStream = new FileInputStream(file)) {
                 keyStore.load(storeStream, keyStorePassword.toCharArray());
@@ -280,18 +279,19 @@ public class Utils
                         keyStore.setCertificateEntry(alias, newCert);
                         keyStore.setKeyEntry(alias, privateKey, newKeyPassword.toCharArray(), new Certificate[]{newCert});
                     }
-
                 }
             } catch (Exception e) {
                 System.out.println("Could not update keystore at " + file.getAbsolutePath());
                 ok = false;
             }
 
-//            if (ok) {
-//                try (FileOutputStream storeStream = new FileOutputStream(file)) {
-//                    keyStore.store(storeStream, keyStorePassword.toCharArray());
-//                }
-//            }
+            if (ok) {
+                File outputFile = new File(file.getParent() + "/keystore.new.bcfks");
+                try (FileOutputStream storeStream = new FileOutputStream(outputFile)) {
+                    keyStore.store(storeStream, keyStorePassword.toCharArray());
+                    System.out.println("Wrote keystore to " + outputFile.getAbsolutePath());
+                }
+            }
         }
 
         if (file.isDirectory()) {
@@ -305,23 +305,38 @@ public class Utils
         }
     }
 
-    public static Certificate newCertificateFromExisting(Certificate certificate, PrivateKey privateKey, PublicKey publicKey) throws OperatorCreationException, CertificateException, IOException {
-        X509CertificateHolder holder = new X509CertificateHolder(certificate.getEncoded());
-        JcaX509v1CertificateBuilder builder = new JcaX509v1CertificateBuilder(
-                holder.getIssuer(),
-                holder.getSerialNumber(),
-                holder.getNotBefore(),
-                holder.getNotAfter(),
-                holder.getSubject(),
+    public static Certificate newCertificateFromExisting(Certificate certificate, PrivateKey privateKey, PublicKey publicKey) throws OperatorCreationException, CertificateException, IOException, NoSuchProviderException, NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+        SecureRandom random = new SecureRandom();
+
+        X509CertificateHolder oldCert = new X509CertificateHolder(certificate.getEncoded());
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                oldCert.getIssuer(),
+                oldCert.getSerialNumber(),
+                oldCert.getNotBefore(),
+                oldCert.getNotAfter(),
+                oldCert.getSubject(),
                 publicKey
         );
-        ContentSigner contentSigner = new JcaContentSignerBuilder(SIGNATURE_ALGORITHM)
+
+        BasicConstraints constraints = new BasicConstraints(true);
+        builder.addExtension(
+                Extension.basicConstraints,
+                true,
+                constraints.getEncoded());
+        ContentSigner signer = new JcaContentSignerBuilder(SIGNATURE_ALGORITHM)
                 .build(privateKey);
-        return new JcaX509CertificateConverter().getCertificate(builder.build(contentSigner));
+        X509CertificateHolder holder = builder.build(signer);
+        return new JcaX509CertificateConverter()
+                .getCertificate(holder);
     }
 
 
-    public static void changeAllPrivateKeysInBcfksFiles(String current, String keystoreFileName, String keyStorePassword,String oldKeyPassword, String newKeyPassword) throws Exception {
+    public static void changeAllPrivateKeysInBcfksFiles(
+            String current,
+            String keystoreFileName,
+            String keyStorePassword,
+            String oldKeyPassword,
+            String newKeyPassword) throws Exception {
         File file = new File(current);
         if (file.isFile() && file.getName().equals(keystoreFileName)) {
             boolean hasError = false;
