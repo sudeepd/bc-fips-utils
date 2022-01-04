@@ -9,28 +9,34 @@ import java.nio.file.StandardCopyOption;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Date;
 import java.util.Enumeration;
+import java.util.concurrent.ThreadLocalRandom;
 import javax.security.auth.x500.X500Principal;
 import javax.security.auth.x500.X500PrivateCredential;
 
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x509.*;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
 import org.bouncycastle.cert.jcajce.JcaX509v1CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.openssl.PEMParser;
+import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.util.encoders.Base64;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.util.io.pem.PemReader;
 
 /**
  * Certificate/Key Utilities for the examples.
@@ -45,7 +51,7 @@ public class Utils
     /**
      * Port number for our examples to use.
      */
-    static final int PORT_NO = 9020;
+    static final int PORT_NO = 443;
     /**
      * Algorithm for signing certificates
      */
@@ -137,6 +143,15 @@ public class Utils
 
     }
 
+    public static KeyPair generateKeyPair()
+            throws Exception
+    {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA","BCFIPS");
+        keyGen.initialize(4096);
+        return keyGen.generateKeyPair();
+
+    }
+
 
     public static KeyPair generateRootKeyPair()
             throws Exception
@@ -183,6 +198,7 @@ public class Utils
         return new JcaX509CertificateConverter()
                 .setProvider("BCFIPS").getCertificate(certHolder);
     }
+
     /**
      * Create a server trust store.
      *
@@ -191,12 +207,15 @@ public class Utils
     public static KeyStore createServerTrustStore()
             throws Exception
     {
-        X500PrivateCredential serverCred = createRootCredential();
-        KeyStore keyStore = KeyStore.getInstance("JKS");
-        keyStore.load(null, null);
-        keyStore.setCertificateEntry(
-                serverCred.getAlias(), serverCred.getCertificate());
-        return keyStore;
+        String keystorePath = "/Users/sdas/work/keycloak-fips/kc-docker/development/keycloak/quarkus/deployment/src/test/resources/keycloak.truststore.bcfks";
+        String keyPassword = "averylongpassword";
+        KeyStore trustStore = KeyStore.getInstance("BCFKS");
+        InputStream trustStream = new FileInputStream(new File(keystorePath));
+        try (InputStream is = trustStream) {
+            trustStore.load(is, keyPassword.toCharArray());
+        }
+
+        return trustStore;
     }
     /**
      * Create a server key store.
@@ -277,7 +296,7 @@ public class Utils
                         Certificate certificate = keyStore.getCertificate(alias);
                         Certificate newCert = newCertificateFromExisting(certificate, privateKey, publicKey);
                         keyStore.deleteEntry(alias);
-                        keyStore.setCertificateEntry(alias, newCert);
+//                        keyStore.setCertificateEntry(alias, newCert);
                         keyStore.setKeyEntry(alias, privateKey, newKeyPassword.toCharArray(), new Certificate[]{newCert});
                     }
 
@@ -317,7 +336,9 @@ public class Utils
         );
         ContentSigner contentSigner = new JcaContentSignerBuilder(SIGNATURE_ALGORITHM)
                 .build(privateKey);
-        return new JcaX509CertificateConverter().getCertificate(builder.build(contentSigner));
+
+        Certificate cert = new JcaX509CertificateConverter().getCertificate(builder.build(contentSigner));
+        return cert;
     }
 
 
@@ -362,6 +383,81 @@ public class Utils
         }
     }
 
+    public static void replaceCertificateInAllFilesInDirectory(String current, String keystoreFileName, String keyStorePassword, String alias, PrivateKey privateKey, PublicKey publicKey) throws Exception {
+        File file = new File(current);
+        if (file.isFile() && file.getName().equals(keystoreFileName)) {
+            replaceCertificateInKeystore(file.getAbsolutePath(),keyStorePassword,alias,privateKey, publicKey);
+        }
+
+        if (file.isDirectory()){
+            File[] filesList = file.listFiles();
+            if (filesList == null) filesList = new File[0];
+            for (File f : filesList)
+                replaceCertificateInAllFilesInDirectory(f.getAbsolutePath(),keystoreFileName,keyStorePassword, alias, privateKey, publicKey);
+        }
+    }
+
+    public static void addKeyToKeystore(String keystoreFileName, String keystorePassword, String alias, PrivateKey privateKey, String keyPassword,Certificate certificate) {
+        try{
+            KeyStore ks = KeyStore.getInstance("BCFKS","BCFIPS");
+            ks.load(new FileInputStream(keystoreFileName), keystorePassword.toCharArray());
+            ks.setKeyEntry(alias,privateKey,keyPassword.toCharArray(),new Certificate[] { certificate});
+            ks.store(new FileOutputStream(keystoreFileName), keystorePassword.toCharArray());
+        }catch (Exception e) {
+            System.out.println("Unable to update keystore " + keystoreFileName);
+        }
+    }
+
+    public static String getAliasOfFirstKeyEntry(String keystoreFileName, String keystorePassword) {
+        try{
+            KeyStore ks = KeyStore.getInstance("BCFKS","BCFIPS");
+            ks.load(new FileInputStream(keystoreFileName), keystorePassword.toCharArray());
+            Enumeration<String> aliases = ks.aliases();
+            while (aliases.hasMoreElements()) {
+                String alias = aliases.nextElement();
+                if (ks.isKeyEntry(alias) ) return alias;
+            }
+        }catch (Exception e) {
+            System.out.println("Unable to update keystore " + keystoreFileName);
+            return null;
+        }
+        return null;
+    }
+
+
+
+    public static void replaceCertificateInKeystore(String keystoreFileName, String keyStorePassword,String target, PrivateKey privateKey, PublicKey publicKey) throws Exception {
+        KeyStore ks = KeyStore.getInstance("BCFKS","BCFIPS");
+        File file = new File(keystoreFileName);
+        try {
+            boolean hasError = false;
+            ks.load(new FileInputStream(keystoreFileName), keyStorePassword.toCharArray());
+            Enumeration<String> aliases = ks.aliases();
+            while (aliases.hasMoreElements()) {
+                String alias = aliases.nextElement();
+                if (ks.isCertificateEntry(alias) && alias.equals(target)) {
+                    try {
+                        Certificate cert = ks.getCertificate(alias);
+                        Certificate replacement = newCertificateFromExisting(cert,privateKey,publicKey);
+                        ks.deleteEntry(alias);
+                        ks.setCertificateEntry(alias, replacement);
+                    } catch (Exception e) {
+                        hasError = true;
+                        System.out.println("Unable to load key " + alias);
+                    }
+                }
+            }
+            if (!hasError) {
+                file.renameTo(new File(keystoreFileName + ".bkp"));
+                ks.store(new FileOutputStream(keystoreFileName), keyStorePassword.toCharArray());
+            }
+        }catch (Exception e) {
+            System.out.println("Unable to load key store at " + keystoreFileName);
+        }
+    }
+
+
+
     public static KeyPair createKeyPair() throws NoSuchAlgorithmException {
         KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
         keyPairGenerator.initialize(3072);
@@ -378,6 +474,22 @@ public class Utils
         }
     }
 
+    public static PrivateKey loadPKCS1RSAPrivateKey(String privateKey) {
+        try {
+            String key = "-----BEGIN RSA PRIVATE KEY-----\n" + privateKey + "\n-----END RSA PRIVATE KEY-----\n";
+            StringReader stringReader = new StringReader(key);
+            PEMParser pemParser = new PEMParser(stringReader);
+            JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
+            PrivateKeyInfo privateKeyInfo = PrivateKeyInfo.getInstance(pemParser.readObject());
+
+            return converter.getPrivateKey(privateKeyInfo);
+        }catch(Exception e){
+            return null;
+        }
+
+    }
+
+
     public static PublicKey loadRSAPublicKey(String publicKey) {
         byte[] keyBytes = Base64.decode(publicKey);
         X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
@@ -387,4 +499,84 @@ public class Utils
             throw new RuntimeException("Failed to key", e);
         }
     }
+
+    public static Certificate loadCertificate(String certificate) throws Exception {
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(Base64.decode(certificate)));
+        return cert;
+    }
+
+
+    public static  String generateJwtKid(PublicKey pubkey) throws Exception{
+        return encode(MessageDigest.getInstance("SHA-256").digest(pubkey.getEncoded()));
+    }
+
+    public static PrivateKey getPrivateKeyFromKeystore(String fileName, String keyStorePassword, String keyPassword, String target) throws Exception {
+        File file = new File(fileName);
+        KeyStore ks = KeyStore.getInstance("BCFKS","BCFIPS");
+        ks.load(new FileInputStream(file), keyStorePassword.toCharArray());
+        Enumeration<String> aliases = ks.aliases();
+        while (aliases.hasMoreElements()) {
+            String alias = aliases.nextElement();
+            if (alias.equals(target)) {
+                return (PrivateKey) ks.getKey(alias, keyPassword.toCharArray());
+            }
+        }
+        return null;
+    }
+
+    public static PublicKey getPublicKeyFromKeystore(String fileName, String keyStorePassword, String target) throws Exception {
+        File file = new File(fileName);
+        KeyStore ks = KeyStore.getInstance("BCFKS","BCFIPS");
+        ks.load(new FileInputStream(file), keyStorePassword.toCharArray());
+        Enumeration<String> aliases = ks.aliases();
+        while (aliases.hasMoreElements()) {
+            String alias = aliases.nextElement();
+            if (alias.equals(target)) {
+                return ks.getCertificate(alias).getPublicKey();
+            }
+        }
+        return null;
+    }
+
+    public static Certificate getCertificateFromKeystore(String fileName, String keyStorePassword, String target) throws Exception {
+        try {
+            File file = new File(fileName);
+            KeyStore ks = KeyStore.getInstance("BCFKS", "BCFIPS");
+            ks.load(new FileInputStream(file), keyStorePassword.toCharArray());
+            Enumeration<String> aliases = ks.aliases();
+            while (aliases.hasMoreElements()) {
+                String alias = aliases.nextElement();
+                if (alias.equals(target)) {
+                    return ks.getCertificate(alias);
+                }
+            }
+        }catch (Exception e){
+            System.out.println(e.getMessage());
+        }
+        return null;
+    }
+
+
+    public static boolean validateKeyPair(PublicKey publicKey, PrivateKey privateKey) {
+        try {
+            byte[] challenge = new byte[10000];
+            ThreadLocalRandom.current().nextBytes(challenge);
+
+            // sign using the private key
+            Signature sig = Signature.getInstance("SHA256withRSA");
+            sig.initSign(privateKey);
+            sig.update(challenge);
+            byte[] signature = sig.sign();
+
+            // verify signature using the public key
+            sig.initVerify(publicKey);
+            sig.update(challenge);
+            boolean keyPairMatches = sig.verify(signature);
+            return keyPairMatches;
+        }catch (Exception e) {
+            return false;
+        }
+    }
+
 }

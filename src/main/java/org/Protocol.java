@@ -18,8 +18,7 @@ public class Protocol
     {
         OutputStream out = cSock.getOutputStream();
         InputStream in = cSock.getInputStream();
-        out.write(Strings.toByteArray("World"));
-        out.write('!');
+        out.write(Strings.toByteArray("GET /"));
         int ch = 0;
         while ((ch = in.read()) != '!')
         {

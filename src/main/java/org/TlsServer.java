@@ -4,9 +4,11 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.nio.file.Paths;
 import java.security.*;
+import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import javax.crypto.Cipher;
 import javax.net.ssl.*;
 
 import org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider;
@@ -77,34 +79,30 @@ public class TlsServer
         }
     }
 
-
     public static void main(
             String[] args)
             throws Exception
     {
         Security.addProvider(new BouncyCastleFipsProvider());
         Security.addProvider(new BouncyCastleJsseProvider());
-        X509Certificate cert = Utils.getCert("/tmp/keystore.bcfks","averylongpassword","averylongpassword","secure-portal");
-        String base64Cert = Base64.toBase64String(cert.getEncoded());
-        for (Provider provider : Security.getProviders()) {
-            System.out.println(provider.getName() + ": " + provider.getInfo());
-        }
 
-//        Utils.copyTruststoreAlongsideKeystore();
+        String key1 = "MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBALOOiAmD0SJJq/HYhApsk+fXAoU1iBIl2AWN0+ji5WaxfKH1Qs2xHqFDpoa7R4o8cbikqKi1j+JzTrd6yDbUDQUCAwEAAQ==";
+        String key2 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgK" +
+                "CAQEAgj8r0029eL0jJKXv6XbNj+QqsZO25HhZ0IjTEtb8mfh0tju/X8c6dXgILh5wU7OF0" +
+                "0U+0mSYSE/+rrYKmY5g4oCleTe1+abavATP1tamtXGAUYqdutaXPrVn9yMsCWEPchSPZlE" +
+                "Gq5iBJdA+xh9ejUmZJYXmln26HUVWq71/jC9GpjbRmFQ37f0X7WJoGyiqyttfKkKfUeBmR" +
+                "bX/0P0Zm6DVze8HjCDVPBllZE0a3HCgSF0rp0+s1xn7o91qdWKVattAVsGNjjDPz/sgwHO" +
+                "yyhDtSyajwXU+K/QUZ9pV4moGtwC9uIEymTylP7bu7qnxXIhfouEa+fEjAzTs0HJ5JQIDAQAB";
 
-//        Utils.changeAllPrivateKeysInBcfksFiles("/Users/sdas/work/keycloak-fips/keycloak/testsuite/integration-arquillian/tests/base/src/test/resources/adapter-test/keycloak-saml",
-//                "keystore.bcfks",
-//                "averylongpassword",
-//                "test123",
-//                "averylongpassword");
+        String kid1 = Utils.generateJwtKid(Utils.loadRSAPublicKey(key1));
+        String kid2 = Utils.generateJwtKid(Utils.loadRSAPublicKey(key2));
 
-        //        SSLContext sslContext = initializeTLS();
-        SSLContext sslContext = SSLContext.getInstance("TLS", "BCJSSE");
-//        KeyManagerFactory keyMgrFact = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         KeyManagerFactory keyMgrFact = KeyManagerFactory.getInstance(
                 "PKIX", "BCJSSE");
         keyMgrFact.init(Utils.createServerKeyStore(), Utils.SERVER_PASSWORD);
 
+
+        SSLContext sslContext = SSLContext.getInstance("TLS","BCJSSE");
         sslContext.init(keyMgrFact.getKeyManagers(), null, null);
         SSLServerSocketFactory fact = sslContext.getServerSocketFactory();
         SSLServerSocket sSock = (SSLServerSocket)fact.createServerSocket(
